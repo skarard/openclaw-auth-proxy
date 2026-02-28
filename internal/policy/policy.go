@@ -16,9 +16,11 @@ const (
 )
 
 type Result struct {
-	Decision   Decision
-	Credential string
-	Rule       string
+	Decision             Decision
+	Credential           string
+	Rule                 string
+	Service              string
+	StripResponseHeaders []string
 }
 
 type Engine struct {
@@ -52,10 +54,16 @@ func (e *Engine) Evaluate(agent, method, host, reqPath string) Result {
 				continue
 			}
 			if pathMatches(route.Path, reqPath) {
-				return Result{
-					Decision:   AllowWithCredential,
-					Credential: rule.Credential,
-					Rule:       rule.Agent + " -> " + rule.Host + " " + method + " " + route.Path,
+				svc := rule.Service
+					if svc == "" {
+						svc = rule.Host
+					}
+					return Result{
+					Decision:             AllowWithCredential,
+					Credential:           rule.Credential,
+					Rule:                 rule.Agent + " -> " + rule.Host + " " + method + " " + route.Path,
+					Service:              svc,
+					StripResponseHeaders: rule.StripResponseHeaders,
 				}
 			}
 		}

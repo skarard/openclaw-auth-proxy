@@ -182,3 +182,106 @@ func TestHTTPHistory(t *testing.T) {
 		t.Errorf("history = %d", len(list))
 	}
 }
+
+func TestWebhookIncludesEventField(t *testing.T) {
+	var payload map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&payload)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	m := NewManager(5*time.Minute, srv.URL, nil)
+	m.Request("pa", "github", "api.github.com", "GET", "/repos")
+	time.Sleep(100 * time.Millisecond)
+
+	if payload == nil {
+		t.Fatal("webhook not called")
+	}
+	if payload["event"] != "auth_required" {
+		t.Errorf("event = %v, want auth_required", payload["event"])
+	}
+	if payload["agent"] != "pa" {
+		t.Errorf("agent = %v", payload["agent"])
+	}
+	if payload["service"] != "github" {
+		t.Errorf("service = %v", payload["service"])
+	}
+	if payload["host"] != "api.github.com" {
+		t.Errorf("host = %v", payload["host"])
+	}
+	if payload["method"] != "GET" {
+		t.Errorf("method = %v", payload["method"])
+	}
+	if payload["path"] != "/repos" {
+		t.Errorf("path = %v", payload["path"])
+	}
+	if _, ok := payload["message"]; !ok {
+		t.Error("message field missing")
+	}
+}
+
+func TestApproveWebhook(t *testing.T) {
+	var payloads []map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&p)
+		payloads = append(payloads, p)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	m := NewManager(5*time.Minute, srv.URL, func(k, v string) {})
+	ar, _ := m.Request("pa", "github", "api.github.com", "GET", "/repos")
+	time.Sleep(100 * time.Millisecond)
+
+	m.Approve(ar.ID, "token123")
+	time.Sleep(100 * time.Millisecond)
+
+	found := false
+	for _, p := range payloads {
+		if p["event"] == "auth_approved" {
+			found = true
+			if p["agent"] != "pa" {
+				t.Errorf("agent = %v", p["agent"])
+			}
+			if _, ok := p["message"]; !ok {
+				t.Error("message missing")
+			}
+		}
+	}
+	if !found {
+		t.Error("auth_approved webhook not fired")
+	}
+}
+
+func TestDenyWebhook(t *testing.T) {
+	var payloads []map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&p)
+		payloads = append(payloads, p)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	m := NewManager(5*time.Minute, srv.URL, nil)
+	ar, _ := m.Request("pa", "github", "api.github.com", "GET", "/repos")
+	time.Sleep(100 * time.Millisecond)
+
+	m.Deny(ar.ID)
+	time.Sleep(100 * time.Millisecond)
+
+	found := false
+	for _, p := range payloads {
+		if p["event"] == "auth_denied" {
+			found = true
+			if p["agent"] != "pa" {
+				t.Errorf("agent = %v", p["agent"])
+			}
+		}
+	}
+	if !found {
+		t.Error("auth_denied webhook not fired")
+	}
+}

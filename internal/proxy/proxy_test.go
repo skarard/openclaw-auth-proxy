@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -193,5 +194,139 @@ func TestProxyRedirectNotFollowed(t *testing.T) {
 
 	if w.Code != http.StatusFound {
 		t.Errorf("status = %d, want 302", w.Code)
+	}
+}
+
+func TestAuthRequiredStructuredJSON(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Agents: map[string]config.Agent{"agent1": {IP: "127.0.0.1"}},
+		Rules: []config.Rule{{
+			Agent: "agent1", Host: hostFromURL(upstream.URL), Credential: "nonexistent",
+			Service: "github",
+			Routes:  []config.Route{{Method: "GET", Path: "/**"}},
+		}},
+		Default: "deny",
+	}
+	engine := policy.NewEngine(cfg)
+	creds := &CredentialStore{values: map[string]string{}}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	p := New(engine, creds, logger, false)
+
+	req := httptest.NewRequest("GET", upstream.URL+"/repos/test/issues", nil)
+	req.RemoteAddr = "127.0.0.1:9999"
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("content-type = %q", ct)
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["error"] != "AUTH_REQUIRED" {
+		t.Errorf("error = %q", body["error"])
+	}
+	if body["service"] != "github" {
+		t.Errorf("service = %q", body["service"])
+	}
+	if body["agent"] != "agent1" {
+		t.Errorf("agent = %q", body["agent"])
+	}
+	if body["request_id"] == "" {
+		t.Error("request_id missing")
+	}
+	if body["message"] == "" {
+		t.Error("message missing")
+	}
+}
+
+func TestResponseSetCookieStripped(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Set-Cookie", "session=abc")
+		w.Header().Set("X-Custom", "keep")
+		w.WriteHeader(200)
+	}))
+	defer upstream.Close()
+
+	p, _ := setupProxy(t, upstream, "deny")
+
+	req := httptest.NewRequest("GET", upstream.URL+"/test", nil)
+	req.RemoteAddr = "127.0.0.1:9999"
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+
+	if w.Header().Get("Set-Cookie") != "" {
+		t.Error("Set-Cookie should be stripped")
+	}
+	if w.Header().Get("X-Custom") != "keep" {
+		t.Error("X-Custom should pass through")
+	}
+}
+
+func TestCustomStripHeadersFromConfig(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Set-Cookie", "session=abc")
+		w.Header().Set("X-OAuth-Token", "secret")
+		w.Header().Set("X-Safe", "ok")
+		w.WriteHeader(200)
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Agents: map[string]config.Agent{"agent1": {IP: "127.0.0.1"}},
+		Rules: []config.Rule{{
+			Agent: "agent1", Host: hostFromURL(upstream.URL), Credential: "test-cred",
+			StripResponseHeaders: []string{"X-OAuth-Token"},
+			Routes:               []config.Route{{Method: "GET", Path: "/**"}},
+		}},
+		Default: "deny",
+	}
+	engine := policy.NewEngine(cfg)
+	creds := &CredentialStore{values: map[string]string{"test-cred": "token-abc"}}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	p := New(engine, creds, logger, false)
+
+	req := httptest.NewRequest("GET", upstream.URL+"/test", nil)
+	req.RemoteAddr = "127.0.0.1:9999"
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+
+	if w.Header().Get("Set-Cookie") != "" {
+		t.Error("Set-Cookie should be stripped (default)")
+	}
+	if w.Header().Get("X-OAuth-Token") != "" {
+		t.Error("X-OAuth-Token should be stripped (custom)")
+	}
+	if w.Header().Get("X-Safe") != "ok" {
+		t.Error("X-Safe should pass through")
+	}
+}
+
+func TestCookieHeaderStrippedFromRequest(t *testing.T) {
+	var gotCookie string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCookie = r.Header.Get("Cookie")
+		w.WriteHeader(200)
+	}))
+	defer upstream.Close()
+
+	p, _ := setupProxy(t, upstream, "deny")
+
+	req := httptest.NewRequest("GET", upstream.URL+"/test", nil)
+	req.RemoteAddr = "127.0.0.1:9999"
+	req.Header.Set("Cookie", "session=hijack")
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+
+	if gotCookie != "" {
+		t.Errorf("Cookie header should be stripped, got %q", gotCookie)
 	}
 }

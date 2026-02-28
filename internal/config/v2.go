@@ -25,9 +25,10 @@ type V2Agent struct {
 }
 
 type V2Service struct {
-	Host       string  `yaml:"host"`
-	Credential string  `yaml:"credential"`
-	Routes     []Route `yaml:"routes"`
+	Host                 string   `yaml:"host"`
+	Credential           string   `yaml:"credential"`
+	StripResponseHeaders []string `yaml:"strip_response_headers"`
+	Routes               []Route  `yaml:"routes"`
 }
 
 // AuthFlowConfig configures the reactive auth flow system.
@@ -103,12 +104,14 @@ func normalizeV2(v2 *V2Config) (*Config, error) {
 
 	for agentName, v2agent := range v2.Agents {
 		cfg.Agents[agentName] = Agent{IP: v2agent.IP}
-		for _, svc := range v2agent.Services {
+		for svcName, svc := range v2agent.Services {
 			rule := Rule{
-				Agent:      agentName,
-				Host:       svc.Host,
-				Credential: svc.Credential,
-				Routes:     svc.Routes,
+				Agent:                agentName,
+				Host:                 svc.Host,
+				Credential:           svc.Credential,
+				Service:              svcName,
+				StripResponseHeaders: svc.StripResponseHeaders,
+				Routes:               svc.Routes,
 			}
 			cfg.Rules = append(cfg.Rules, rule)
 		}

@@ -228,3 +228,60 @@ func TestDoubleSlashesInPath(t *testing.T) {
 		t.Error("expected match after path cleaning of double slashes")
 	}
 }
+
+func TestResultIncludesServiceFromV2(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.Agent{"pa": {IP: "172.20.0.10"}},
+		Rules: []config.Rule{{
+			Agent:      "pa",
+			Host:       "api.github.com",
+			Credential: "github-pa",
+			Service:    "github",
+			Routes:     []config.Route{{Method: "GET", Path: "/**"}},
+		}},
+		Default: "deny",
+	}
+	e := NewEngine(cfg)
+	r := e.Evaluate("pa", "GET", "api.github.com", "/repos")
+	if r.Service != "github" {
+		t.Errorf("Service = %q, want github", r.Service)
+	}
+}
+
+func TestResultServiceDerivedFromHostInV1(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.Agent{"pa": {IP: "172.20.0.10"}},
+		Rules: []config.Rule{{
+			Agent:      "pa",
+			Host:       "api.github.com",
+			Credential: "github-pa",
+			// No Service set (v1 style)
+			Routes: []config.Route{{Method: "GET", Path: "/**"}},
+		}},
+		Default: "deny",
+	}
+	e := NewEngine(cfg)
+	r := e.Evaluate("pa", "GET", "api.github.com", "/repos")
+	if r.Service != "api.github.com" {
+		t.Errorf("Service = %q, want api.github.com (derived from host)", r.Service)
+	}
+}
+
+func TestResultIncludesStripResponseHeaders(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.Agent{"pa": {IP: "172.20.0.10"}},
+		Rules: []config.Rule{{
+			Agent:                "pa",
+			Host:                 "api.github.com",
+			Credential:           "github-pa",
+			StripResponseHeaders: []string{"X-OAuth-Token"},
+			Routes:               []config.Route{{Method: "GET", Path: "/**"}},
+		}},
+		Default: "deny",
+	}
+	e := NewEngine(cfg)
+	r := e.Evaluate("pa", "GET", "api.github.com", "/repos")
+	if len(r.StripResponseHeaders) != 1 || r.StripResponseHeaders[0] != "X-OAuth-Token" {
+		t.Errorf("StripResponseHeaders = %v", r.StripResponseHeaders)
+	}
+}

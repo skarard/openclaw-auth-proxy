@@ -30,10 +30,12 @@ type Cred struct {
 }
 
 type Rule struct {
-	Agent      string  `yaml:"agent"`
-	Host       string  `yaml:"host"`
-	Credential string  `yaml:"credential"`
-	Routes     []Route `yaml:"routes"`
+	Agent                string   `yaml:"agent"`
+	Host                 string   `yaml:"host"`
+	Credential           string   `yaml:"credential"`
+	Service              string   `yaml:"service"`
+	StripResponseHeaders []string `yaml:"strip_response_headers"`
+	Routes               []Route  `yaml:"routes"`
 }
 
 type Route struct {

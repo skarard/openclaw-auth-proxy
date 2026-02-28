@@ -86,15 +86,46 @@ func (m *Manager) Request(agent, service, host, method, path string) (*AuthReque
 
 	// Fire webhook async
 	if m.webhookURL != "" {
-		go m.fireWebhook(ar)
+		go m.fireWebhook("auth_required", ar, fmt.Sprintf("Agent %s needs %s access (%s)", ar.Agent, ar.Service, ar.Host))
 	}
 
 	log.Printf("[authflow] new auth request id=%s agent=%s host=%s", ar.ID, agent, host)
 	return ar, true
 }
 
-func (m *Manager) fireWebhook(ar *AuthRequest) {
-	data, _ := json.Marshal(ar)
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// webhookPayload is the structured webhook event sent to the configured URL.
+type webhookPayload struct {
+	Event     string `json:"event"`
+	ID        string `json:"id"`
+	Agent     string `json:"agent"`
+	Service   string `json:"service"`
+	Host      string `json:"host"`
+	Method    string `json:"method,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Timestamp string `json:"timestamp"`
+	Message   string `json:"message"`
+}
+
+func (m *Manager) fireWebhook(event string, ar *AuthRequest, message string) {
+	payload := webhookPayload{
+		Event:     event,
+		ID:        ar.ID,
+		Agent:     ar.Agent,
+		Service:   ar.Service,
+		Host:      ar.Host,
+		Method:    ar.Method,
+		Path:      ar.Path,
+		Timestamp: ar.Timestamp.Format(time.RFC3339),
+		Message:   message,
+	}
+	data, _ := json.Marshal(payload)
 	resp, err := m.httpClient.Post(m.webhookURL, "application/json", bytes.NewReader(data))
 	if err != nil {
 		log.Printf("[authflow] webhook error: %v", err)
@@ -121,6 +152,10 @@ func (m *Manager) Approve(id, credentialValue string) error {
 		// Use agent+host as credential key
 		m.setCred(ar.Agent+"-"+ar.Service, credentialValue)
 	}
+
+	if m.webhookURL != "" {
+		go m.fireWebhook("auth_approved", ar, fmt.Sprintf("%s access granted for agent %s. You can retry.", capitalize(ar.Service), ar.Agent))
+	}
 	return nil
 }
 
@@ -137,6 +172,10 @@ func (m *Manager) Deny(id string) error {
 		return fmt.Errorf("auth request %q is %s, not pending", id, ar.Status)
 	}
 	ar.Status = "denied"
+
+	if m.webhookURL != "" {
+		go m.fireWebhook("auth_denied", ar, fmt.Sprintf("%s access denied for agent %s.", capitalize(ar.Service), ar.Agent))
+	}
 	return nil
 }
 

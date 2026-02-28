@@ -1,6 +1,9 @@
 package proxy
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
@@ -64,7 +67,19 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		token, ok := p.creds.Get(result.Credential)
 		if !ok {
 			p.log(r, agent, result.Rule, "credential_missing")
-			http.Error(w, "AUTH_REQUIRED: credential not configured", http.StatusForbidden)
+			reqID := generateRequestID()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":      "AUTH_REQUIRED",
+				"service":    result.Service,
+				"host":       host,
+				"method":     r.Method,
+				"path":       r.URL.Path,
+				"agent":      agent,
+				"request_id": reqID,
+				"message":    "Credential not configured. An auth request has been sent for approval.",
+			})
 			return
 		}
 		r.Header.Set("Authorization", "Bearer "+token)
@@ -89,12 +104,19 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Strip Cookie headers from outbound request (defence in depth)
+	stripRequestCookies(outReq.Header)
+
 	resp, err := p.client.Do(outReq)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
+
+	// Strip response headers (defaults + per-rule config)
+	stripSet := buildStripSet(result.StripResponseHeaders)
+	stripResponseHeaders(resp.Header, stripSet)
 
 	// Copy response headers
 	for key, vals := range resp.Header {
@@ -169,6 +191,12 @@ func (p *Proxy) log(r *http.Request, agent, rule, decision string) {
 		"rule", rule,
 		"decision", decision,
 	)
+}
+
+func generateRequestID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func isHopByHop(key string) bool {
