@@ -30,9 +30,9 @@ func main() {
 		"agents", len(cfg.Agents),
 		"rules", len(cfg.Rules),
 		"default", cfg.Default,
+		"upstreams", len(cfg.Upstreams),
 	)
 
-	// Resolve all credentials at startup
 	creds, err := proxy.NewCredentialStore(cfg.Credentials)
 	if err != nil {
 		logger.Error("failed to resolve credentials", "error", err)
@@ -42,6 +42,20 @@ func main() {
 
 	engine := policy.NewEngine(cfg)
 	p := proxy.New(engine, creds, logger, cfg.Logging.Audit)
+
+	// Start upstream listeners
+	if len(cfg.Upstreams) > 0 {
+		listeners, err := proxy.StartUpstreamListeners(cfg.Upstreams, engine, creds, logger, cfg.Logging.Audit)
+		if err != nil {
+			logger.Error("failed to start upstream listeners", "error", err)
+			os.Exit(1)
+		}
+		defer func() {
+			for _, l := range listeners {
+				l.Close()
+			}
+		}()
+	}
 
 	addr := cfg.Listen.Addr()
 	logger.Info("starting auth proxy", "addr", addr)

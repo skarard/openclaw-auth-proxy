@@ -14,6 +14,7 @@ type Config struct {
 	Default     string           `yaml:"default"` // "deny" or "passthrough"
 	Listen      Listen           `yaml:"listen"`
 	Logging     Logging          `yaml:"logging"`
+	Upstreams   []Upstream       `yaml:"upstreams"`
 }
 
 type Agent struct {
@@ -21,14 +22,17 @@ type Agent struct {
 }
 
 type Cred struct {
-	Source string `yaml:"source"` // "env", "file", "exec"
-	ID     string `yaml:"id"`
+	Source  string   `yaml:"source"`  // "env", "file", "exec"
+	ID      string   `yaml:"id"`
+	Path    string   `yaml:"path"`    // file source: path to JSON file
+	Command string   `yaml:"command"` // exec source: binary path
+	Args    []string `yaml:"args"`    // exec source: arguments
 }
 
 type Rule struct {
-	Agent      string `yaml:"agent"`
-	Host       string `yaml:"host"`
-	Credential string `yaml:"credential"`
+	Agent      string  `yaml:"agent"`
+	Host       string  `yaml:"host"`
+	Credential string  `yaml:"credential"`
 	Routes     []Route `yaml:"routes"`
 }
 
@@ -37,7 +41,6 @@ type Route struct {
 	Path   string      `yaml:"path"`
 }
 
-// Methods returns the allowed methods as a slice.
 func (r Route) Methods() []string {
 	switch v := r.Method.(type) {
 	case string:
@@ -67,6 +70,12 @@ func (l Listen) Addr() string {
 type Logging struct {
 	Level string `yaml:"level"`
 	Audit bool   `yaml:"audit"`
+}
+
+type Upstream struct {
+	Name       string `yaml:"name"`
+	ListenPort int    `yaml:"listen_port"`
+	Target     string `yaml:"target"` // e.g. https://api.github.com
 }
 
 func Load(path string) (*Config, error) {

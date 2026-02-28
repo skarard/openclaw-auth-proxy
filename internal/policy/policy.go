@@ -17,13 +17,12 @@ const (
 
 type Result struct {
 	Decision   Decision
-	Credential string // credential key if AllowWithCredential
-	Rule       string // description for audit log
+	Credential string
+	Rule       string
 }
 
 type Engine struct {
-	cfg *config.Config
-	// reverse lookup: IP -> agent ID
+	cfg       *config.Config
 	ipToAgent map[string]string
 }
 
@@ -36,7 +35,6 @@ func NewEngine(cfg *config.Config) *Engine {
 }
 
 func (e *Engine) AgentForIP(ip string) (string, bool) {
-	// Strip port if present
 	if idx := strings.LastIndex(ip, ":"); idx != -1 {
 		ip = ip[:idx]
 	}
@@ -81,9 +79,7 @@ func methodMatches(allowed []string, method string) bool {
 	return false
 }
 
-// pathMatches supports * (single segment) and ** (any depth).
 func pathMatches(pattern, reqPath string) bool {
-	// Normalise
 	pattern = path.Clean("/" + pattern)
 	reqPath = path.Clean("/" + reqPath)
 
@@ -97,11 +93,9 @@ func matchParts(pat, req []string) bool {
 	for len(pat) > 0 && len(req) > 0 {
 		p := pat[0]
 		if p == "**" {
-			// ** at the end matches everything
 			if len(pat) == 1 {
 				return true
 			}
-			// Try matching remaining pattern at every position
 			for i := 0; i <= len(req); i++ {
 				if matchParts(pat[1:], req[i:]) {
 					return true
@@ -112,8 +106,21 @@ func matchParts(pat, req []string) bool {
 		if p != "*" && p != req[0] {
 			return false
 		}
+		// * must not match empty string
+		if p == "*" && req[0] == "" {
+			return false
+		}
 		pat = pat[1:]
 		req = req[1:]
 	}
-	return len(pat) == 0 && len(req) == 0
+	// Handle trailing ** matching zero segments
+	if len(req) == 0 {
+		for _, p := range pat {
+			if p != "**" {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
