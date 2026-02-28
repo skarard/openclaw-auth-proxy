@@ -17,6 +17,7 @@ type V2Config struct {
 	Default     string             `yaml:"default"`
 	AuthFlow    AuthFlowConfig     `yaml:"authflow"`
 	Audit       AuditConfig        `yaml:"audit"`
+	TLS         TLS                `yaml:"tls"`
 }
 
 type V2Agent struct {
@@ -99,6 +100,7 @@ func normalizeV2(v2 *V2Config) (*Config, error) {
 		Logging:     v2.Logging,
 		Credentials: v2.Credentials,
 		Default:     v2.Default,
+		TLS:         v2.TLS,
 		Agents:      make(map[string]Agent, len(v2.Agents)),
 	}
 

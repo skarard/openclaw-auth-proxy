@@ -14,11 +14,13 @@ import (
 )
 
 type Proxy struct {
-	engine *policy.Engine
-	creds  *CredentialStore
-	client *http.Client
-	logger *slog.Logger
-	audit  bool
+	engine      *policy.Engine
+	creds       *CredentialStore
+	client      *http.Client
+	logger      *slog.Logger
+	audit       bool
+	certManager *CertManager
+	mitmClient  *http.Client // optional: override for MITM upstream calls (testing)
 }
 
 func New(engine *policy.Engine, creds *CredentialStore, logger *slog.Logger, audit bool) *Proxy {
@@ -136,9 +138,9 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For CONNECT, check host policy (no path/method scoping — it's a tunnel)
+	// For CONNECT, check host-level policy first
 	host := r.URL.Hostname()
-	result := p.engine.Evaluate(agent, "CONNECT", host, "/")
+	result := p.engine.EvaluateConnect(agent, host)
 
 	if result.Decision == policy.Deny {
 		p.log(r, agent, result.Rule, "deny")
@@ -146,9 +148,20 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p.log(r, agent, result.Rule, "tunnel")
+	if p.certManager != nil {
+		// MITM mode: intercept TLS for full policy + credential injection
+		p.log(r, agent, result.Rule, "mitm")
+		p.handleConnectMITM(w, r, agent)
+		return
+	}
 
-	// Establish tunnel
+	// Passthrough mode: blind tunnel (no inspection)
+	p.handleConnectPassthrough(w, r, agent, result.Rule)
+}
+
+func (p *Proxy) handleConnectPassthrough(w http.ResponseWriter, r *http.Request, agent, rule string) {
+	p.log(r, agent, rule, "tunnel")
+
 	destConn, err := net.DialTimeout("tcp", r.Host, 10*time.Second)
 	if err != nil {
 		http.Error(w, "could not reach upstream", http.StatusBadGateway)
@@ -206,4 +219,14 @@ func isHopByHop(key string) bool {
 		return true
 	}
 	return false
+}
+
+// SetCertManager enables MITM TLS interception.
+func (p *Proxy) SetCertManager(cm *CertManager) {
+	p.certManager = cm
+}
+
+// SetMITMClient overrides the HTTP client used for MITM upstream requests (for testing).
+func (p *Proxy) SetMITMClient(c *http.Client) {
+	p.mitmClient = c
 }

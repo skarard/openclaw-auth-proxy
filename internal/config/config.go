@@ -15,6 +15,7 @@ type Config struct {
 	Listen      Listen           `yaml:"listen"`
 	Logging     Logging          `yaml:"logging"`
 	Upstreams   []Upstream       `yaml:"upstreams"`
+	TLS         TLS        `yaml:"tls"`
 }
 
 type Agent struct {
@@ -78,6 +79,14 @@ type Upstream struct {
 	Name       string `yaml:"name"`
 	ListenPort int    `yaml:"listen_port"`
 	Target     string `yaml:"target"` // e.g. https://api.github.com
+}
+
+type TLS struct {
+	Enabled bool   `yaml:"enabled"`
+	CACert  string `yaml:"ca_cert"`
+	CAKey   string `yaml:"ca_key"`
+	AutoGen bool   `yaml:"auto_gen"`
+	CertDir string `yaml:"cert_dir"`
 }
 
 func Load(path string) (*Config, error) {

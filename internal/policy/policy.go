@@ -132,3 +132,22 @@ func matchParts(pat, req []string) bool {
 	}
 	return false
 }
+
+// EvaluateConnect checks if an agent has any rules for a given host (method/path agnostic).
+// Used for CONNECT host-level gating before MITM inspection reveals the actual request.
+func (e *Engine) EvaluateConnect(agent, host string) Result {
+	for _, rule := range e.cfg.Rules {
+		if rule.Agent == agent && rule.Host == host {
+			return Result{
+				Decision:   AllowWithCredential,
+				Credential: rule.Credential,
+				Rule:       rule.Agent + " -> " + rule.Host + " CONNECT",
+				Service:    rule.Service,
+			}
+		}
+	}
+	if e.cfg.Default == "passthrough" {
+		return Result{Decision: Allow, Rule: "default:passthrough"}
+	}
+	return Result{Decision: Deny, Rule: "default:deny"}
+}
