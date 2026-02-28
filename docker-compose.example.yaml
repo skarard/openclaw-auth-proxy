@@ -1,0 +1,41 @@
+# Example Docker Compose for auth proxy + agent network
+
+networks:
+  agent-net:
+    driver: bridge
+    internal: true  # no internet access for containers
+  external:
+    driver: bridge
+
+services:
+  auth-proxy:
+    build: .
+    networks:
+      - agent-net
+      - external
+    ports: []  # no host-exposed ports needed
+    volumes:
+      - ./proxy.config.yaml:/etc/auth-proxy/config.yaml:ro
+    environment:
+      - GITHUB_PA_TOKEN
+      - GITHUB_TC_TOKEN
+
+  agent-pa:
+    image: openclaw-agent:pa
+    networks:
+      - agent-net  # internal only — no direct internet
+    environment:
+      - HTTP_PROXY=http://auth-proxy:3100
+      - HTTPS_PROXY=http://auth-proxy:3100
+    volumes:
+      - ~/agents/pa:/workspace
+
+  agent-teslacoil:
+    image: openclaw-agent:teslacoil
+    networks:
+      - agent-net
+    environment:
+      - HTTP_PROXY=http://auth-proxy:3100
+      - HTTPS_PROXY=http://auth-proxy:3100
+    volumes:
+      - ~/agents/teslacoil:/workspace

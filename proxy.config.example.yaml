@@ -1,0 +1,50 @@
+# openclaw-auth-proxy configuration
+
+# Agent identification by container IP
+agents:
+  pa:
+    ip: 172.20.0.10
+  teslacoil:
+    ip: 172.20.0.11
+
+# Credential sources (integrates with OpenClaw secrets manager)
+credentials:
+  github-pa:
+    source: env
+    id: GITHUB_PA_TOKEN
+  github-tc:
+    source: env
+    id: GITHUB_TC_TOKEN
+
+# Route policy rules
+rules:
+  - agent: pa
+    host: api.github.com
+    credential: github-pa
+    routes:
+      - method: GET
+        path: "/**"
+      - method: POST
+        path: "/repos/*/issues"
+      - method: PATCH
+        path: "/repos/*/issues/*"
+
+  - agent: teslacoil
+    host: api.github.com
+    credential: github-tc
+    routes:
+      - method: [GET, POST, PATCH]
+        path: "/repos/skarard/teslacoil/**"
+
+# Default: deny all unmatched requests
+default: deny
+
+# Proxy listener
+listen:
+  host: 0.0.0.0
+  port: 3100
+
+# Logging
+logging:
+  level: info
+  audit: true  # log every request with agent ID, method, host, path, decision
