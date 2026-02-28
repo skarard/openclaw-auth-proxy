@@ -20,7 +20,7 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadAuto(*configPath)
 	if err != nil {
 		logger.Error("failed to load config", "error", err)
 		os.Exit(1)
